@@ -38,6 +38,7 @@ GetOptions(
 	"ingress|i=s" => \$ingress,
 	"listen|l=s"  => \$listen,
 ) or usage "invalid arguments";
+usage "excess arguments" if @ARGV;
 
 exit main($listen, $ingress);
 
