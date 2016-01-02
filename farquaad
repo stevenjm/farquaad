@@ -21,7 +21,6 @@ use warnings;
 
 use AnyEvent;
 use AnyEvent::FCGI;
-use File::Basename qw(dirname);
 use Getopt::Long;
 use Net::Address::IP::Local;
 use Net::DNS;
