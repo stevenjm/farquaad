@@ -52,7 +52,7 @@ sub main {
 		if (m!^/!) {
 			$socket = $listen;
 		} elsif (/^(([\d.]*):)?(\d+)$/) {
-			$host = $1;
+			$host = $2;
 			$port = $3;
 		} else {
 			die "listen must be [ip:]port or socket";
@@ -61,7 +61,7 @@ sub main {
 
 	usage "must provide -i" unless $ingress;
 	if ($ingress =~ /^(([\d.]*):)?(\d+)$/) {
-		$iaddr = $1;
+		$iaddr = $2;
 		$iport = $3;
 		$iaddr ||= Net::Address::IP::Local->public_ipv4;
 	} else {
