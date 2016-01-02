@@ -1,0 +1,197 @@
+#!/usr/bin/env perl
+
+# Copyright (c) 2016 Steven McDonald <steven@steven-mcdonald.id.au>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use 5.010;
+use utf8;
+use strict;
+use warnings;
+
+use AnyEvent;
+use AnyEvent::FCGI;
+use File::Basename qw(dirname);
+use Getopt::Long;
+use Net::Address::IP::Local;
+use Net::DNS;
+use Pod::Perldoc;
+
+sub main;
+sub usage;
+sub handle;
+sub is_tor;
+
+my ($listen, $ingress);
+
+GetOptions(
+	"ingress|i=s" => \$ingress,
+	"listen|l=s"  => \$listen,
+) or usage "invalid arguments";
+
+exit main($listen, $ingress);
+
+sub main {
+	my ($listen, $ingress) = @_;
+	my ($host, $port, $socket);
+	my ($iaddr, $iport);
+
+	usage "must provide -l" unless $listen;
+	for ($listen) {
+		if (m!^/!) {
+			$socket = $listen;
+		} elsif (/^(([\d.]*):)?(\d+)$/) {
+			$host = $1;
+			$port = $3;
+		} else {
+			die "listen must be [ip:]port or socket";
+		}
+	}
+
+	usage "must provide -i" unless $ingress;
+	if ($ingress =~ /^(([\d.]*):)?(\d+)$/) {
+		$iaddr = $1;
+		$iport = $3;
+		$iaddr ||= Net::Address::IP::Local->public_ipv4;
+	} else {
+		die "ingress must be [ip:]port";
+	}
+
+	my $fcgi = new AnyEvent::FCGI(
+		host       => $host,
+		port       => $port,
+		socket     => $socket,
+		on_request => sub { handle($iaddr, $iport, @_); },
+	);
+
+	AnyEvent->loop;
+}
+
+sub usage {
+	@ARGV = ("-T", __FILE__);
+	*STDOUT = *STDERR;
+	Pod::Perldoc->run;
+	die @_;
+}
+
+sub handle {
+	my ($us, $port, $request) = @_;
+	my $them = $request->params()->{REMOTE_ADDR};
+
+	if (is_tor $us, $port, $them) {
+		$request->respond("Forbidden",
+			Status         => 403,
+			"Content-Type" => "text/plain",
+		);
+	} else {
+		$request->respond("OK",
+			Status         => 200,
+			"Content-Type" => "text/plain",
+		);
+	}
+}
+
+sub is_tor {
+	my ($us, $port, $them) = @_;
+	state $res = Net::DNS::Resolver->new;
+
+	my $dnsname =
+		(join ".", reverse split /\./, $them) .
+		".$port." .
+		(join ".", reverse split /\./, $us) .
+		".ip-port.exitlist.torproject.org";
+	my $reply = $res->search($dnsname);
+
+	unless ($reply) {
+		warn "lookup for $dnsname failed: " . $res->errorstring
+			if $res->errorstring ne "NXDOMAIN";
+		return 0;
+	}
+
+	return 1 if $reply->header->ancount;
+
+	warn "got empty successful reply for $dnsname";
+	return 0;
+}
+
+=head1 NAME
+
+farquaad - FastCGI server that rejects Tor clients
+
+=head1 SYNOPSIS
+
+  farquaad -l /path/to/socket -i 443
+
+=head1 DESCRIPTION
+
+Farquaad is a FastCGI server that simply returns a 403 error to Tor
+users, or a 200 response otherwise. It is intended to be used in
+conjunction with nginx's http_auth_request module.
+
+=head2 Options
+
+=over 4
+
+=item -l
+
+Where to listen. May be either a fully qualified path to a UNIX domain
+socket, or a TCP port. In the latter case, an IP address may be
+prepended along with a colon to listen on a specific address.
+
+=item -i
+
+Ingress traffic to check. Consists of an optional IP address and a
+required TCP port, separated by a colon. If no IP address is specified,
+this host's default IP address will be used.
+
+=back
+
+=head1 BUGS
+
+=over 4
+
+=item *
+
+IPv6 is unsupported. This is unlikely to be a big problem for now, as
+most Tor exit nodes still seem to be using IPv4.
+
+=back
+
+=head1 SEE ALSO
+
+L<TorDNSEL|https://www.torproject.org/projects/tordnsel.html.en>,
+L<http_auth_request module|http://nginx.org/en/docs/http/ngx_http_auth_request_module.html>
+
+=head1 AUTHOR
+
+Steven McDonald, E<lt>steven@steven-mcdonald.id.auE<gt>
+
+=head1 COPYRIGHT
+
+Copyright (c) 2016 Steven McDonald <steven@steven-mcdonald.id.au>
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+=cut
+
+1;
