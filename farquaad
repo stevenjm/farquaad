@@ -74,6 +74,7 @@ sub main {
 		on_request => sub { handle($iaddr, $iport, @_); },
 	);
 
+	warn "start event loop\n";
 	AnyEvent->loop;
 }
 
@@ -89,11 +90,13 @@ sub handle {
 	my $them = $request->params()->{REMOTE_ADDR};
 
 	if (is_tor $us, $port, $them) {
+		warn "deny $them\n";
 		$request->respond("Forbidden",
 			Status         => 403,
 			"Content-Type" => "text/plain",
 		);
 	} else {
+		warn "allow $them\n";
 		$request->respond("OK",
 			Status         => 200,
 			"Content-Type" => "text/plain",
@@ -113,14 +116,14 @@ sub is_tor {
 	my $reply = $res->search($dnsname);
 
 	unless ($reply) {
-		warn "lookup for $dnsname failed: " . $res->errorstring
+		warn "lookup for $dnsname failed: " . $res->errorstring . "\n"
 			if $res->errorstring ne "NXDOMAIN";
 		return 0;
 	}
 
 	return 1 if $reply->header->ancount;
 
-	warn "got empty successful reply for $dnsname";
+	warn "got empty successful reply for $dnsname\n";
 	return 0;
 }
 
